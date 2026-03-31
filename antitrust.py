@@ -2,73 +2,6 @@ import os
 
 BASE_DIR = r"W:\Joseph\Spring 2026\RA MO\antitrust-project"
 
-import requests
-import pandas as pd
-
-# 🔑 your API key
-API_KEY = "r85l8Kr1EId7Jd9nfh7NyywycbIaQ7Hh6eQjvcoJ"
-
-# FTC endpoint
-url = "https://api.ftc.gov/v0/hsr-early-termination-notices"
-
-params = {
-    "api_key": API_KEY,
-    "page[limit]": 100
-}
-
-records = []
-offset = 0
-
-while True:
-    params["page[offset]"] = offset
-
-    res = requests.get(url, params=params)
-
-    # check if request worked
-    if res.status_code != 200:
-        print("Error:", res.status_code)
-        print(res.text)
-        break
-
-    json_data = res.json()
-    data = json_data.get("data", [])
-
-    if not data:
-        break
-
-    for item in data:
-        attr = item["attributes"]
-
-        records.append({
-            "date": attr.get("date"),
-            "acquirer": attr.get("acquiring-party"),
-            "target": attr.get("acquired-party"),
-            "transaction_number": attr.get("transaction-number"),
-            "title": attr.get("title")
-        })
-
-    print(f"Downloaded {len(records)} rows...")
-
-    offset += 100
-
-# convert to dataframe
-df = pd.DataFrame(records)
-
-# save
-df.to_csv(os.path.join(BASE_DIR, "FTC Early Termination.csv"), index=False, encoding="utf-8-sig")
-
-print("\nDone ✅")
-print(df.head())
-
-
-
-
-
-
-
-
-
-
 
 import requests
 import pandas as pd
@@ -129,7 +62,7 @@ while True:
 
 df = pd.DataFrame(records)
 
-df.to_csv("ftc_early_termination_full_clean.csv", index=False, encoding="utf-8-sig")
+df.to_csv(os.path.join(BASE_DIR, "FTC Early Termination.csv"), index=False, encoding="utf-8-sig")
 
 print("\nDone ✅")
 print(df.head())
@@ -137,27 +70,69 @@ print(df.head())
 
 
 
-
-
-
-
+import os
+import time
 import requests
 from bs4 import BeautifulSoup
 import pandas as pd
-import time
 
-# load your DOJ links file
-df_links = pd.read_csv("doj_cases_alpha.csv")
+#################################################
+# FIXED PROJECT PATH
+#################################################
 
+BASE_DIR = r"W:\Joseph\Spring 2026\RA MO\antitrust-project"
+
+DOJ_ALPHA_FILE = os.path.join(BASE_DIR, "DOJ Alpha Links.csv")
+DOJ_CASES_FILE = os.path.join(BASE_DIR, "DOJ Cases.csv")
+
+#################################################
+# BLOCK 1: SCRAPE DOJ ALPHA LINKS
+#################################################
+
+url = "https://www.justice.gov/atr/antitrust-case-filings-alpha"
 headers = {"User-Agent": "Mozilla/5.0"}
+
+res = requests.get(url, headers=headers)
+print("Status:", res.status_code)
+
+soup = BeautifulSoup(res.text, "html.parser")
+
+records = []
+
+# collect all DOJ case links from the alphabetical listing
+for a in soup.select('a[href^="/atr/case/"], a[href^="/atr/case-document/"]'):
+    title = a.get_text(" ", strip=True)
+    href = a.get("href")
+
+    if title and href:
+        full_link = "https://www.justice.gov" + href if href.startswith("/") else href
+        records.append({
+            "title": title,
+            "link": full_link
+        })
+
+df_doj = pd.DataFrame(records).drop_duplicates()
+
+# save block 1 output inside your antitrust project folder
+df_doj.to_csv(DOJ_ALPHA_FILE, index=False, encoding="utf-8-sig")
+
+print("Collected", len(df_doj), "cases")
+print(df_doj.head(10))
+print("Saved alpha links to:", DOJ_ALPHA_FILE)
+
+#################################################
+# BLOCK 2: READ DOJ ALPHA LINKS AND SCRAPE DETAILS
+#################################################
+
+df_links = pd.read_csv(DOJ_ALPHA_FILE)
 
 records = []
 
 for i, row in df_links.iterrows():
-    url = row["link"]
+    page_url = row["link"]
 
     try:
-        res = requests.get(url, headers=headers, timeout=20)
+        res = requests.get(page_url, headers=headers, timeout=20)
 
         if res.status_code != 200:
             print(f"Skip {i}: status {res.status_code}")
@@ -168,7 +143,7 @@ for i, row in df_links.iterrows():
 
         record = {
             "source_title": row.get("title", None),
-            "link": url,
+            "link": page_url,
             "case_open_date": None,
             "case_name": None,
             "case_type": None,
@@ -179,7 +154,6 @@ for i, row in df_links.iterrows():
             "updated_date": None
         }
 
-        # extract all label-value pairs from page text
         lines = [x.strip() for x in text.split("\n") if x.strip()]
 
         def get_value(label):
@@ -234,13 +208,21 @@ for i, row in df_links.iterrows():
         time.sleep(0.5)
 
     except Exception as e:
-        print(f"Error on row {i}: {url} -> {e}")
+        print(f"Error on row {i}: {page_url} -> {e}")
 
 df_out = pd.DataFrame(records)
-df_out.to_csv("doj_case_details.csv", index=False)
+
+# save final DOJ output inside the same project folder
+df_out.to_csv(DOJ_CASES_FILE, index=False, encoding="utf-8-sig")
 
 print("Done")
 print(df_out.head())
+print("Saved DOJ details to:", DOJ_CASES_FILE)
+
+
+
+
+
 
 
 
@@ -249,6 +231,10 @@ import requests
 import pandas as pd
 from bs4 import BeautifulSoup
 import time
+import os
+
+# FIXED PATH
+BASE_DIR = r"W:\Joseph\Spring 2026\RA MO\antitrust-project"
 
 # Base URL
 base_url = "https://www.ftc.gov/legal-library/browse/cases-proceedings"
@@ -274,21 +260,18 @@ params = {
     "page": 0
 }
 
-# Headers
 headers = {
     "User-Agent": "Mozilla/5.0"
 }
 
 base = "https://www.ftc.gov"
 
-# Titles that are NOT real cases
 invalid_titles = {
     "Cases and Proceedings",
     "Adjudicative Proceedings",
     "Commissioner Statements"
 }
 
-# Slugs that correspond to section pages (not actual cases)
 invalid_slug_endings = {
     "/adjudicative-proceedings",
     "/commissioner-statements",
@@ -311,7 +294,6 @@ while True:
     soup = BeautifulSoup(response.text, "html.parser")
     rows = soup.select("div.views-row")
 
-    # Stop if no rows found
     if not rows:
         print("No more rows found. Stopping.")
         break
@@ -324,7 +306,6 @@ while True:
         case_link = None
         case_title = None
 
-        # Find the first valid case link
         for a in links:
             title = a.get_text(" ", strip=True)
             href = a.get("href", "").strip()
@@ -332,24 +313,14 @@ while True:
             if not title or not href:
                 continue
 
-            if href.startswith("/"):
-                full_link = base + href
-            else:
-                full_link = href
+            full_link = base + href if href.startswith("/") else href
 
-            # Keep only legal-library case links
             if "/legal-library/browse/cases-proceedings/" not in full_link:
                 continue
-
-            # Exclude public statements
             if "/public-statements/" in full_link:
                 continue
-
-            # Exclude section pages
             if any(full_link.endswith(x) for x in invalid_slug_endings):
                 continue
-
-            # Exclude invalid titles
             if title in invalid_titles:
                 continue
 
@@ -357,11 +328,9 @@ while True:
             case_title = title
             break
 
-        # Skip if no valid case found
         if not case_link or not case_title:
             continue
 
-        # Remove duplicates
         if case_link in seen_links:
             continue
         seen_links.add(case_link)
@@ -376,7 +345,6 @@ while True:
             "Case Status"
         ]
 
-        # Extract summary
         summary_parts = []
 
         try:
@@ -394,7 +362,6 @@ while True:
 
         summary = " ".join(summary_parts).strip() if summary_parts else None
 
-        # Extract metadata
         meta = {
             "type_of_action": None,
             "last_updated": None,
@@ -426,7 +393,6 @@ while True:
             "case_status": meta["case_status"]
         })
 
-    # Stop if no new records were added
     if len(records) == previous_count:
         print("No new case records found. Stopping.")
         break
@@ -434,12 +400,14 @@ while True:
     page_num += 1
     time.sleep(1)
 
-# Convert to DataFrame
 df = pd.DataFrame(records)
 
-# Save to CSV
-df.to_csv("ftc_cases_all_pages.csv", index=False, encoding="utf-8-sig")
+# SAVE IN YOUR PROJECT FOLDER WITH YOUR EXACT NAME
+df.to_csv(os.path.join(BASE_DIR, "FTC Cases and Proceedings.csv"),
+          index=False,
+          encoding="utf-8-sig")
 
 print("\nDone ✅")
 print(df.head(20))
+
 print(f"\nTotal cases scraped: {len(df)}")
