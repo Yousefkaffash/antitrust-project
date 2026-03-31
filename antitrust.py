@@ -228,6 +228,7 @@ print("Saved DOJ details to:", DOJ_CASES_FILE)
 
 
 import requests
+
 import pandas as pd
 from bs4 import BeautifulSoup
 import time
@@ -401,6 +402,7 @@ while True:
     time.sleep(1)
 
 df = pd.DataFrame(records)
+df["last_updated_local"] = pd.Timestamp.now()
 
 # SAVE IN YOUR PROJECT FOLDER WITH YOUR EXACT NAME
 df.to_csv(os.path.join(BASE_DIR, "FTC Cases and Proceedings.csv"),
@@ -409,5 +411,6 @@ df.to_csv(os.path.join(BASE_DIR, "FTC Cases and Proceedings.csv"),
 
 print("\nDone ✅")
 print(df.head(20))
+
 
 print(f"\nTotal cases scraped: {len(df)}")
